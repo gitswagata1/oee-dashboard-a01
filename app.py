@@ -61,6 +61,8 @@ def machine_table(f: pd.DataFrame, cal_days: int) -> pd.DataFrame:
 
 
 df, META = load()
+MTH = META.get("method", {})
+wc, typ = MTH.get("world_class", 85), MTH.get("typical", 60)
 
 # ---------------- SIDEBAR FILTERS ----------------
 st.sidebar.header("Filters")
@@ -109,13 +111,15 @@ st.caption(f"{META['period_start']} → {META['period_end']} · {META['period_da
 
 with st.expander("📌 Assumptions & methodology (every number traces here)", expanded=False):
     st.markdown(f"""
-- **Data shape:** pre-aggregated MES/SCADA production-run report — one row per machine × shift × part-run. Durations are given minute columns (no state column → losses arrive pre-bucketed).
-- **OEE = A × P × Q.** Availability = Run/Planned (Run = shift-time − availability-loss); Performance = Ideal/Run (Ideal = (Total/parts-per-cycle) × standard-cycle-sec); Quality = OK/Total.
-- **Ideal cycle** from the historian's STANDARD_CYCLE_TIME — *measured, not estimated*.
-- **Capping:** vendor A/P/Q/OEE columns discarded (they showed Availability −82%, Performance 14,197%). Components recomputed and **capped at 100%** at row level; aggregation is **time-weighted**, not an average of percentages.
-- **Quality present** → full OEE (scrap tiny, so Q ≈ 100%). **Shifts** A (day) / B (night, crosses midnight) taken from the SHIFT column.
-- **TEEP = OEE × Utilization**, Utilization = Planned ÷ (machines-in-view × days × 24 h).
-- **Limits:** no downtime reason codes → no reason-level Pareto, no MTBF/MTTR (only A/P/Q minutes, ranked by machine). Heatmap attributes each shift-length record to its clock-hour (approx). {META['dq_total']:,} rows flagged for data quality.
+- **Standard:** OEE per Nakajima / SEMI-E10 — **OEE = Availability × Performance × Quality**, each component capped at 100%, aggregated **time-weighted** (not an average of row percentages). Benchmarks: world-class ≥ {wc}%, typical discrete ≈ {typ}%.
+- **Data shape:** pre-aggregated MES/SCADA production-run report — one row per machine × shift × part-run. Durations given as minute columns; no machine-state column, so losses arrive pre-bucketed.
+- **Availability** = Run ÷ Planned; Run = MACHINE_SHIFT_TIME − availability-loss. MACHINE_SHIFT_TIME verified to sit ~51 min below the clock window → already net of breaks/planned stops.
+- **Performance** = Ideal ÷ Run; Ideal = (Total ÷ parts-per-cycle) × standard-cycle-sec, from the historian's STANDARD_CYCLE_TIME (*measured*). **Finding:** {MTH.get('pct_runs_over_standard','?')}% of runs beat the standard → it looks loose. Capped = {MTH.get('performance_capped_pct','?')}%, uncapped = {MTH.get('performance_uncapped_pct','?')}%; the conservative capped figure is reported.
+- **Quality = First-Pass Yield** = OK ÷ Total, OK **excludes rework** (correct OEE quality basis). FPY ≈ 100%, so OEE ≈ A × P.
+- **Overlap correction:** {MTH.get('overlap_groups',0):,} machine-shifts with overlapping sub-intervals were scaled to their clock-window envelope, removing {MTH.get('overlap_removed_min',0):,} phantom planned-minutes (≈3.4%). Net fleet OEE ≈ +0.4 pt.
+- **Vendor columns discarded** (Availability −82%, Performance 14,197%, 2,554 rows OEE>100%). All figures recomputed from raw counts/times and **reconcile** (Planned = Run + Avail-loss = Ideal + Perf-loss + Avail-loss).
+- **TEEP = OEE × Utilization**, Utilization = Planned ÷ (machines-in-view × days × 24 h) — the true capacity ceiling.
+- **Limits:** no reason codes → Six Big Losses collapse to A/P/Q; no reason-level Pareto, no MTBF/MTTR. Heatmap attributes each shift-length record to its clock-hour (approx). **{META.get('dq_error_total', META['dq_total']):,} data errors** excluded; **{META.get('dq_note_total',0):,} informational notes** documented below.
 """)
 
 if len(view) == 0:
@@ -130,12 +134,17 @@ utilized = sum(1 for m in machs if per_m[m]["R"] >= META["shift_min_threshold"])
 util_ratio = agg["P"] / (len(machs) * cal_days * 24 * 60) if machs else 0
 teep = agg["OEE"] * util_ratio
 
+oee_pct = agg['OEE'] * 100
+bench = f"world-class ≥{wc}%" if oee_pct >= wc else f"above typical {typ}%" if oee_pct >= typ else f"below typical {typ}%"
 k = st.columns(6)
-k[0].metric("Overall OEE", f"{agg['OEE']*100:.1f}%", help="Full OEE incl. Quality")
+k[0].metric("Overall OEE", f"{oee_pct:.1f}%", bench, delta_color="off",
+            help="Full OEE incl. First-Pass Yield. Nakajima/SEMI-E10; components capped at 100%, time-weighted.")
 k[1].metric("Availability", f"{agg['A']*100:.1f}%", f"{agg['AL']:,.0f} loss min", delta_color="off")
-k[2].metric("Performance", f"{agg['Pe']*100:.1f}%", f"{agg['PL']:,.0f} loss min", delta_color="off")
-k[3].metric("Quality", f"{agg['Q']*100:.1f}%", f"{agg['T']-agg['OK']:,.0f} bad parts", delta_color="off")
-k[4].metric("TEEP", f"{teep*100:.1f}%", f"Util {util_ratio*100:.1f}%", delta_color="off")
+k[2].metric("Performance", f"{agg['Pe']*100:.1f}%", f"{MTH.get('pct_runs_over_standard','?')}% beat std cycle", delta_color="off",
+            help=f"Capped at 100%. Uncapped would read {MTH.get('performance_uncapped_pct','?')}% — the standard cycle time appears loose.")
+k[3].metric("Quality (FPY)", f"{agg['Q']*100:.2f}%", f"{agg['T']-agg['OK']:,.0f} non-first-pass parts", delta_color="off",
+            help="First-Pass Yield = OK ÷ Total; OK excludes rework (rework counts as a first-pass loss).")
+k[4].metric("TEEP", f"{teep*100:.1f}%", f"Util {util_ratio*100:.1f}% · capacity ceiling", delta_color="off")
 k[5].metric("Machines", f"{utilized}/{len(machs)}", "utilized / connected", delta_color="off")
 
 worst = (pd.DataFrame([{"m": m, "OEE": per_m[m]["OEE"], "R": per_m[m]["R"]} for m in machs])
@@ -279,8 +288,15 @@ with c5:
     st.table(recon)
 with c6:
     st.subheader("Data quality")
-    st.info(f"⚑ {META['dq_total']:,} flagged rows across {META['n_raw']:,} — kept {META['n_kept_valid']:,} valid for metrics")
-    dqs = pd.DataFrame([(k, v) for k, v in META["dq_summary"].items()], columns=["Issue", "Rows"]).sort_values("Rows", ascending=False)
-    st.table(dqs)
+    st.info(f"⚑ **{META.get('dq_error_total', META['dq_total']):,} data errors** · "
+            f"{META.get('dq_note_total', 0):,} informational notes · "
+            f"{META['n_raw']:,} rows in → {META['n_kept_valid']:,} valid for metrics")
+    errs = META.get("dq_errors", META["dq_summary"])
+    notes = META.get("dq_notes", {})
+    st.markdown("**Data errors** — excluded from metrics or corrected")
+    st.table(pd.DataFrame([(k, v) for k, v in errs.items()], columns=["Issue", "Rows"]).sort_values("Rows", ascending=False))
+    if notes:
+        st.markdown("**Informational notes** — documented, metric-affecting")
+        st.table(pd.DataFrame([(k, v) for k, v in notes.items()], columns=["Note", "Rows"]).sort_values("Rows", ascending=False))
     with st.expander("Sample flagged rows"):
         st.dataframe(pd.DataFrame(META["dq_detail"][:200]), use_container_width=True, height=240)
