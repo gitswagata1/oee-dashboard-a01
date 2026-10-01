@@ -1,11 +1,20 @@
+<div align="center">
+
 # OEE & Loss-Attribution Dashboard — Cell A01
 
 ![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
 ![Plotly](https://img.shields.io/badge/Plotly-3F4F75?style=flat-square&logo=plotly&logoColor=white)
 ![Pandas](https://img.shields.io/badge/Pandas-150458?style=flat-square&logo=pandas&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 
 Production-grade interactive dashboard computing **OEE (Availability x Performance x Quality)**, TEEP, Six Big Losses breakdown, and per-machine drill-downs from SCADA/MES historian exports.
+
+</div>
+
+<!-- 📸 Add a screenshot: run the app, take a screenshot, save as docs/screenshot.png, then uncomment:
+![Dashboard Screenshot](docs/screenshot.png)
+-->
 
 > **176 machines · 12,549 records · 51 calendar days (May–Jun 2026)**
 
