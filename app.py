@@ -168,8 +168,11 @@ k = st.columns(6)
 k[0].metric("Overall OEE", f"{oee_pct:.1f}%", bench, delta_color="off",
             help="Full OEE incl. First-Pass Yield. Nakajima/SEMI-E10; components capped at 100%, time-weighted.")
 k[1].metric("Availability", f"{agg['A']*100:.1f}%", f"{agg['AL']:,.0f} loss min", delta_color="off")
-k[2].metric("Performance", f"{agg['Pe']*100:.1f}%", f"{MTH.get('pct_runs_over_standard','?')}% beat std cycle", delta_color="off",
-            help=f"Capped at 100%. Uncapped would read {MTH.get('performance_uncapped_pct','?')}% — the standard cycle time appears loose.")
+k[2].metric("Performance", f"{agg['Pe']*100:.1f}%",
+            None if uploaded else f"{MTH.get('pct_runs_over_standard','?')}% beat std cycle",
+            delta_color="off",
+            help=("Capped at 100%; calculated from your uploaded data." if uploaded
+                  else f"Capped at 100%. Uncapped would read {MTH.get('performance_uncapped_pct','?')}% — the standard cycle time appears loose."))
 k[3].metric("Quality (FPY)", f"{agg['Q']*100:.2f}%", f"{agg['T']-agg['OK']:,.0f} non-first-pass parts", delta_color="off",
             help="First-Pass Yield = OK ÷ Total; OK excludes rework (rework counts as a first-pass loss).")
 k[4].metric("TEEP", f"{teep*100:.1f}%", f"Util {util_ratio*100:.1f}% · capacity ceiling", delta_color="off")
