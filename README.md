@@ -45,6 +45,7 @@ An OEE of **85%+** is considered world-class. This dashboard helps you track, an
 - **Band classification** — Color-coded health bands (good / mid / poor / critical)
 - **Interactive Plotly charts** — Trend lines, bar charts, heatmaps with hover details
 - **Date & machine filters** — Drill into any time range or specific machine
+- **CSV upload** — Use your own production data with clear validation errors
 - **Streamlit UI** — Clean, responsive interface that works on desktop and mobile
 
 ---
@@ -97,7 +98,7 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Opens at `http://localhost:8501`. The dashboard loads with sample data from Cell A01.
+Opens at `http://localhost:8501`. The dashboard loads with sample data from Cell A01. To use your own data, choose **Production data (CSV)** in the sidebar. If no file is selected, the sample data stays active.
 
 ### Docker
 
@@ -110,12 +111,15 @@ docker run -p 8501:8501 oee-dashboard
 
 ## Data Format
 
-The dashboard reads from `rows_clean.csv`. Expected columns:
+The dashboard reads from `rows_clean.csv` by default, or from a CSV uploaded in the sidebar. Required columns (in any order):
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `date` | datetime | Production date |
+| `shift` | string | Production shift (e.g., A or B) |
 | `machine` | string | Machine identifier (e.g., A01-CNC-01) |
+| `mtype` | string | Machine type (e.g., CN) |
+| `hour` | int | Hour of day (0–23), used for the heatmap |
 | `planned` | float | Planned production time (minutes) |
 | `run` | float | Actual run time (minutes) |
 | `ideal` | float | Ideal cycle time (minutes) |
@@ -126,12 +130,15 @@ The dashboard reads from `rows_clean.csv`. Expected columns:
 | `ploss` | float | Performance loss (minutes) |
 | `qloss` | float | Quality loss (minutes) |
 
+For uploads: dates must be readable; numeric values must be non-negative and finite; `valid` must be 0 or 1; `ok` cannot exceed `total`; and valid rows need positive `planned` time. Invalid files show a clear error instead of loading partial results. Other columns are optional. The sample's original data-quality audit is **not** applied to uploads.
+
 ---
 
 ## Roadmap
 
 - [ ] **Shift-wise OEE comparison** — Compare day, evening, and night shifts
-- [ ] **CSV/Excel import** — Upload data through the UI
+- [x] **CSV import** — Upload production data through the UI
+- [ ] **Excel import** — Upload Excel production data
 - [ ] **Email alerts** — Notify when OEE drops below threshold
 - [ ] **Historical trends** — Week-over-week and month-over-month views
 - [ ] **PDF report export** — Generate shift-end OEE reports
