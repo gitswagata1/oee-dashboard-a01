@@ -18,6 +18,8 @@ NUMERIC_COLUMNS = {
 
 def load_uploaded_data(source) -> pd.DataFrame:
     """Read an uploaded CSV and reject data that would break OEE calculations."""
+    if hasattr(source, "seek"):
+        source.seek(0)
     try:
         df = pd.read_csv(source)
     except (pd.errors.ParserError, UnicodeError, ValueError, OSError) as exc:
@@ -60,6 +62,8 @@ def load_uploaded_data(source) -> pd.DataFrame:
         raise ValueError("Column 'valid' must contain only 0 or 1.")
     if (df["ok"] > df["total"]).any():
         raise ValueError("Column 'ok' cannot exceed 'total'.")
+    if ((df["valid"] == 1) & (df["planned"] <= 0)).any():
+        raise ValueError("Valid production rows must have planned time greater than zero.")
     if not df["valid"].eq(1).any():
         raise ValueError("CSV contains no rows marked valid (valid = 1).")
 
