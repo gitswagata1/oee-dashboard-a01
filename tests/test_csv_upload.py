@@ -68,3 +68,15 @@ def test_no_valid_rows():
 def test_whitespace_column_headers():
     data = parse(HEADER.replace("machine", " machine ") + "\n" + ROW + "\n")
     assert data["machine"].iloc[0] == "CNC-1"
+
+def test_valid_production_row_cannot_have_zero_planned():
+    cells = dict(zip(HEADER.split(","), ROW.split(",")))
+    cells["planned"] = "0"
+    with pytest.raises(ValueError, match="planned time greater than zero"):
+        parse(HEADER + "\n" + ",".join(cells.values()) + "\n")
+
+
+def test_resets_file_before_read():
+    source = StringIO(HEADER + "\n" + ROW + "\n")
+    source.read()
+    assert len(load_uploaded_data(source)) == 1
