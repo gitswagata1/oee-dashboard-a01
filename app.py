@@ -11,6 +11,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from upload_data import load_uploaded_data, uploaded_metadata
+
 HERE = Path(__file__).parent
 st.set_page_config(page_title="OEE Dashboard — Cell A01", layout="wide", page_icon="🏭")
 
@@ -50,7 +52,7 @@ def machine_table(f: pd.DataFrame, cal_days: int) -> pd.DataFrame:
     rows = []
     for m, g in f.groupby("machine"):
         a = aggregate(g)
-        rows.append(dict(Machine=m, Type=m[3:5],
+        rows.append(dict(Machine=m, Type=str(g["mtype"].iloc[0]),
                          OEE=round(a["OEE"] * 100, 1), Avail=round(a["A"] * 100, 1),
                          Perf=round(a["Pe"] * 100, 1), Qual=round(a["Q"] * 100, 1),
                          Run_min=round(a["R"]), Planned_min=round(a["P"]),
@@ -61,6 +63,20 @@ def machine_table(f: pd.DataFrame, cal_days: int) -> pd.DataFrame:
 
 
 df, META = load()
+st.sidebar.header("Data source")
+uploaded_file = st.sidebar.file_uploader("Production data (CSV)", type=["csv"])
+uploaded = uploaded_file is not None
+if uploaded:
+    try:
+        df = load_uploaded_data(uploaded_file)
+        META = uploaded_metadata(df)
+    except ValueError as exc:
+        st.error(f"Cannot use uploaded CSV: {exc}")
+        st.stop()
+    st.sidebar.success("Using uploaded CSV")
+else:
+    st.sidebar.caption("Using built-in sample data")
+
 MTH = META.get("method", {})
 wc, typ = MTH.get("world_class", 85), MTH.get("typical", 60)
 
@@ -105,12 +121,21 @@ else:
 cal_days = (pd.Timestamp(d_to) - pd.Timestamp(d_from)).days + 1
 
 # ---------------- HEADER ----------------
-st.title("Cell A01 — OEE & Loss Attribution")
+st.title("OEE & Loss Attribution" if uploaded else "Cell A01 — OEE & Loss Attribution")
 st.caption(f"{META['period_start']} → {META['period_end']} · {META['period_days']} calendar days · "
            f"{META['connected']} machines · {META['n_raw']:,} records · **{len(view):,} in current view**")
 
 with st.expander("📌 Assumptions & methodology (every number traces here)", expanded=False):
-    st.markdown(f"""
+    if uploaded:
+        st.markdown("""
+- **OEE = Availability × Performance × Quality.**
+- Only rows with `valid = 1` count toward metrics.
+- Calculations use the uploaded production times, counts, and losses.
+- The uploaded CSV is validated for required fields and values. The sample's
+  manufacturing assumptions and historical data-quality audit do not apply.
+""")
+    else:
+        st.markdown(f"""
 - **Standard:** OEE per Nakajima / SEMI-E10 — **OEE = Availability × Performance × Quality**, each component capped at 100%, aggregated **time-weighted** (not an average of row percentages). Benchmarks: world-class ≥ {wc}%, typical discrete ≈ {typ}%.
 - **Data shape:** pre-aggregated MES/SCADA production-run report — one row per machine × shift × part-run. Durations given as minute columns; no machine-state column, so losses arrive pre-bucketed.
 - **Availability** = Run ÷ Planned; Run = MACHINE_SHIFT_TIME − availability-loss. MACHINE_SHIFT_TIME verified to sit ~51 min below the clock window → already net of breaks/planned stops.
@@ -120,10 +145,13 @@ with st.expander("📌 Assumptions & methodology (every number traces here)", ex
 - **Vendor columns discarded** (Availability −82%, Performance 14,197%, 2,554 rows OEE>100%). All figures recomputed from raw counts/times and **reconcile** (Planned = Run + Avail-loss = Ideal + Perf-loss + Avail-loss).
 - **TEEP = OEE × Utilization**, Utilization = Planned ÷ (machines-in-view × days × 24 h) — the true capacity ceiling.
 - **Limits:** no reason codes → Six Big Losses collapse to A/P/Q; no reason-level Pareto, no MTBF/MTTR. Heatmap attributes each shift-length record to its clock-hour (approx). **{META.get('dq_error_total', META['dq_total']):,} data errors** excluded; **{META.get('dq_note_total',0):,} informational notes** documented below.
-""")
+        """)
 
 if len(view) == 0:
     st.warning("No records match the current filters.")
+    st.stop()
+if not view["valid"].eq(1).any():
+    st.warning("No valid production rows match the current filters.")
     st.stop()
 
 # ---------------- KPI HEADER ----------------
@@ -288,15 +316,21 @@ with c5:
     st.table(recon)
 with c6:
     st.subheader("Data quality")
-    st.info(f"⚑ **{META.get('dq_error_total', META['dq_total']):,} data errors** · "
-            f"{META.get('dq_note_total', 0):,} informational notes · "
-            f"{META['n_raw']:,} rows in → {META['n_kept_valid']:,} valid for metrics")
-    errs = META.get("dq_errors", META["dq_summary"])
-    notes = META.get("dq_notes", {})
-    st.markdown("**Data errors** — excluded from metrics or corrected")
-    st.table(pd.DataFrame([(k, v) for k, v in errs.items()], columns=["Issue", "Rows"]).sort_values("Rows", ascending=False))
-    if notes:
-        st.markdown("**Informational notes** — documented, metric-affecting")
-        st.table(pd.DataFrame([(k, v) for k, v in notes.items()], columns=["Note", "Rows"]).sort_values("Rows", ascending=False))
-    with st.expander("Sample flagged rows"):
-        st.dataframe(pd.DataFrame(META["dq_detail"][:200]), use_container_width=True, height=240)
+    if uploaded:
+        st.info(f"Uploaded CSV: {META['n_raw']:,} records, "
+                f"{META['n_kept_valid']:,} marked valid.")
+        st.caption("File structure and values were checked. The sample's "
+                   "data-quality audit has not been run on your CSV.")
+    else:
+        st.info(f"⚑ **{META.get('dq_error_total', META['dq_total']):,} data errors** · "
+                f"{META.get('dq_note_total', 0):,} informational notes · "
+                f"{META['n_raw']:,} rows in → {META['n_kept_valid']:,} valid for metrics")
+        errs = META.get("dq_errors", META["dq_summary"])
+        notes = META.get("dq_notes", {})
+        st.markdown("**Data errors** — excluded from metrics or corrected")
+        st.table(pd.DataFrame([(k, v) for k, v in errs.items()], columns=["Issue", "Rows"]).sort_values("Rows", ascending=False))
+        if notes:
+            st.markdown("**Informational notes** — documented, metric-affecting")
+            st.table(pd.DataFrame([(k, v) for k, v in notes.items()], columns=["Note", "Rows"]).sort_values("Rows", ascending=False))
+        with st.expander("Sample flagged rows"):
+            st.dataframe(pd.DataFrame(META["dq_detail"][:200]), use_container_width=True, height=240)
